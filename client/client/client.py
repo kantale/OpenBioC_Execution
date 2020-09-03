@@ -48,26 +48,27 @@ def connect_to_airflow_db():
     '''
     Connect to airflow Postgresql and allow us execute query from obc_client
     '''
-    conn = pg8000.connect(
+    conn=pg8000.connect(
         database=os.environ['POSTGRES_DB'],
         user=os.environ['POSTGRES_USER'], 
         password=os.environ['POSTGRES_PASSWORD'],
         host=os.environ['PUBLIC_IP'],
         port=int(os.environ['EXECUTOR_DB_PORT']))
+    cursor= conn.cursor()
+    return cursor
 
-    return conn
 
+
+
+app = Flask(__name__)
+# connect to airflow db (As a global command)
+db_ctrl = connect_to_airflow_db()
 def execute_query(query):
     '''
     execute the query and return the result as a list
     '''
-    conn = connect_to_airflow_db()
-    cursor= conn.cursor()
-    result = cursor.execute(query)
+    result = db_ctrl.execute(query)
     return result
-
-
-app = Flask(__name__)
 
 # Run server
 if __name__ == '__main__':
@@ -100,7 +101,8 @@ def get_full_path(filename):
     # elif dag_type == 'tool':
     #     return f"{dag_tl_directory}/{filename}"
     return f"{dag_directory}{filename}.py"
-def generate_file(dag_id,instructions):
+
+def generate_dag_file(dag_id,instructions):
     '''
     Get the data from request to generate the dag file
     name : The name of file to be generated
@@ -113,13 +115,35 @@ def generate_file(dag_id,instructions):
     filename,filename_path = create_filename(dag_id)
     
     if os.path.exists(filename_path):
-        print_f("This file exists")
+        print_f("DAG path exists")
         with open(filename_path,'w') as dag_file:
             dag_file.write(instructions)
     else:
         with open(filename_path,'w') as dag_file:
             dag_file.write(instructions)
-
+    dag_file.close()
+    
+def generate_cwl_dag_file(workflow_id,cwl_wf_path):
+    '''
+    Create a python file that contains the cwl workflow path
+    '''
+    contents=f'''
+#!/usr/bin/env python3
+from cwl_airflow.extensions.cwldag import CWLDAG
+dag = CWLDAG(
+    workflow=f"{cwl_wf_path}/workflow.cwl",
+    dag_id=f"{workflow_id}"
+    '''
+    filename,filename_path = create_filename(workflow_id)
+    if os.path.exists(filename_path):
+        print_f("CWL_AIRFLOW_DAG path exists")
+        with open(filename_path,'w') as cwl_dag_file:
+            cwl_dag_file.write(contents)
+    else:
+        with open(filename_path,'w') as cwl_dag_file:
+            cwl_dag_file.write(contents)
+    cwl_dag_file.close()
+    
 def delete_from_airflow(dag_name):
     '''
     Delete the dag from airflow Database
@@ -130,7 +154,7 @@ def delete_from_airflow(dag_name):
         "Cache-Control": "no-cache"
         }
 
-    response = requests.delete(url)
+    response = requests.delete(url, headers=headers)
 
     return response
 
@@ -167,7 +191,6 @@ def delete_dag(dag_id):
     # delete_result['status']="deleted"
     # print_f(f"{"error" in result['error']}")
     if "error" in result:
-        print_f("Einai mesa")
         result["status"]="failed"
         result["dag_id"]=f"{dag_id}"
     else:
@@ -181,32 +204,14 @@ def delete_dag(dag_id):
 
 
 
-def get_tool_OBC_rest(callback,tool_id, tl_name, tl_edit,tl_version):
-    '''
-    Send GET request to OBC REST to get the dagfile
-    RETURN dag File contents
-    0.0.0.0:8200 MUST BE CHANGED WITH THE MAIN OBC SERVER
-    '''
-    response = requests.get(f'{callback}rest/tools/{tl_name}/{tl_version}/{tl_edit}/?dag=true&tool_id={tool_id}')
-
-    if response.status_code != 200:
-        print_f(f"Error while retrieving data. ERROR_CODE : {response.status_code}")
-        dag_contents['success']='false'
-        dag_contents['error']=f"Error while retrieving data. ERROR_CODE : {response.status_code}"
-    else:
-        print_f("success")
-        dag_contents=response.json()
-    
-    return dag_contents
-
-
-def get_workflow_OBC_rest(callback,wf_name, wf_edit,workflow_id):
+def get_tool_OBC_rest(callback,tool_id, tl_name, tl_edit, tl_version,tl_type):
     '''
     Send GET request to OBC REST to get the dagfile
     RETURN dag File contents
     '''
-    response = requests.get(f'{callback}rest/workflows/{wf_name}/{wf_edit}/?dag=true&workflow_id={workflow_id}')
     dag_contents={}
+    response = requests.get(f'{callback}rest/tools/{tl_name}/{tl_version}/{tl_edit}/?type=true&tool_id={tool_id}')
+
     if response.status_code != 200:
         print_f(f"Error while retrieving data. ERROR_CODE : {response.status_code}")
         dag_contents['success']='false'
@@ -218,7 +223,50 @@ def get_workflow_OBC_rest(callback,wf_name, wf_edit,workflow_id):
     return dag_contents
 
 
-def dag__trigger(id,name,edit):
+def get_workflow_OBC_rest(callback,workflow_name, workflow_edit,workflow_format,workflow_id):
+    '''
+    Send GET request to OBC REST to get the dagfile
+    https://openbio.eu/platform/rest/workflows/<workflow_name>/<workflow_edit>/?workflow_id=<workflow_id>&format=<format>
+    RETURN dag File contents
+    '''
+    dag_contents={}
+    #FIX FOR TESTS ONLY
+    if workflow_format=="airflow":
+        url = f'{callback}rest/workflows/{workflow_name}/{workflow_edit}/?workflow_id={workflow_id}&format={workflow_format}'
+        #We have to define the headers in order to take a json object of a workflow
+        headers= {'accept': 'application/json'}
+        response = requests.get(url)
+    elif workflow_format=="cwl-airflow":
+        url = f'{callback}rest/workflows/{workflow_name}/{workflow_edit}/?workflow_id={workflow_id}&format=cwlzip'
+        response = requests.get(url)
+        # folder creation, unzip file into the dag folder 
+        cwl_zip_path= f"{os.environ['AIRFLOW_HOME']}/dags/cwl/{workflow_id}" 
+        try: 
+            os.mkdir(cwl_zip_path)
+        except OSError:
+            print("Creation of the directory %s failed" % cwl_zip_path)
+        else:
+            print("Successfully created the directory %s" % cwl_zip_path) 
+        if response.status_code == 200:
+            with open("{cwl_zip_path}/{workflow_id}.zip", 'wb') as f:
+                f.write(response.content)
+            with zipfile.ZipFile(f"{cwl_zip_path}/{workflow_id}.zip",'r') as zip_ref:
+                zip_ref.extractall(cwl_zip_path)
+    if response.status_code != 200:
+        print_f(f"Error while retrieving data. ERROR_CODE : {response.status_code}")
+        dag_contents['success']='false'
+        dag_contents['error']=f"Error while retrieving data. ERROR_CODE : {response.status_code}"
+    else:
+        print_f("success")
+        dag_contents=response.json()
+    
+    return dag_contents
+
+
+    
+
+
+def dag__trigger(id,name,edit,configuration_data):
     '''
     Trigger the dag from OpenBio
     Function starts using docker between containers which didn't work
@@ -241,12 +289,15 @@ def dag__trigger(id,name,edit):
         "Cache-Control": "no-cache"
         }
     # TODO -> MUST BE CHANGED BETTER NOT TO USE WHILE !
-    payload={} # Future changes for scheduling workflow
+    if configuration_data is not None:
+        data = configuration_data
+    else:
+        data = {}
     effort = 0
     while True:
         effort += 1
         print_f (f'Effort: {effort}')
-        response = requests.post(url,data=json.dumps(payload),headers=headers)
+        response = requests.post(url,data=json.dumps(data),headers=headers)
         print_f(f"{response.ok}")
         if response.ok == False:
             print_f (f'Response error:{response.status_code}')
@@ -254,8 +305,6 @@ def dag__trigger(id,name,edit):
             time.sleep(1)
         else:
             break
-
-
     print_f("---> Response from airflow : ")
     print_f(response.json())
     return response.json()
@@ -289,39 +338,54 @@ def run_wf():
     '''
     payload={} # Future changes for scheduling workflow
     d = request.get_data()
-    app.logger.info(str(d))
     data = json.loads(request.get_data())
-
+    # Must be changed from OPENBIO
     name = data['name']
     edit = data['edit']
-    work_type = data['type']
-    callback= data['callback']
-    
-    print_f(request.base_url)
-    app.logger.info(data)
-    if work_type == 'tool':
-        tool_id = data['tool_id']
-        version = data['version']
-        dag_contents= get_tool_OBC_rest(callback,name,edit,version)
-        try:
-            if dag_contents['success']!='failed':
-                generate_file(tool_id)
-                payload['status']=dag__trigger(tool_id,name,edit)
-            else:
-                payload['status']='failed'
-                payload['reason']=dag_contents
-        except KeyError:
-            print_f('Dag not found')
-            payload=dag_contents
-    elif work_type == 'workflow':
+    workflow_format = os.environ['WORKFLOW_FORMAT']
+    callback= data['callback']        
+    # TOOL Not used
+    # if workflow_format == 'tool':
+    #     tool_id = data['tool_id']
+    #     version = data['version']
+    #     tool_type= data['tool_type']
+    #     dag_contents= get_tool_OBC_rest(callback,tool_id, name,edit,version, tool_type)
+    #     try:
+    #         if dag_contents['success']!='failed':
+    #             generate_dag_file(tool_id,dag_contents['dag'])
+    #             payload['status']=dag__trigger(tool_id,name,edit, None)
+    #         else:
+    #             payload['status']='failed'
+    #             payload['reason']=dag_contents
+    #     except KeyError:
+    #         print_f('Dag not found')
+    #         payload=dag_contents
+    if workflow_format == 'airflow':
         workflow_id = data['workflow_id']
-        dag_contents = get_workflow_OBC_rest(callback,name,edit,workflow_id)
-        if dag_contents['success']!='failed':
-            generate_file(workflow_id,dag_contents['dag'])
-            payload['status']=dag__trigger(workflow_id,name,edit)
+        wf_contents = get_workflow_OBC_rest(callback,name,edit,workflow_format,workflow_id)
+        
+        if wf_contents['success']!='failed':
+            generate_dag_file(workflow_id,wf_contents['dag'])
+            payload['status']=dag__trigger(workflow_id,name,edit, None)
         else:
             payload['status']='failed'
-            payload['reason']=dag_contents
+            payload['reason']=wf_contents
+    elif workflow_format == 'cwl-airflow':
+        if wf_contents['success']!='failed':
+            cwl_wf_path=f"{os.environ['AIRFLOW_HOME']}/dags/cwl/{workflow_id}"
+            generate_cwl_dag_file(workflow_id,cwl_wf_path)
+            # TODO : SET THE JSON FOR INPUT PARAMETERS,The JSON came from OpenBio
+            if wf_contents['input_parameters'] in wf_contents:
+                # Must be changed how i get the input parameters
+                input_parameters = wf_contents['input_parameters']
+                payload['status']=dag__trigger(workflow_id,name,edit,input_parameters)
+            else:
+                payload['status']='failed'
+                payload['reason']="The input parameters are not inserted into the request" 
+        else:
+            payload['status']='failed'
+            payload['reason']=wf_contents    
+    
     else:
         payload['status']="failed"
         payload['error']="Unknown type (worfkflow or tool)"
@@ -486,5 +550,5 @@ def dags_data():
                 })
             yield f"data:{json_data}\n\n"
 
-            time.sleep(10)
+            time.sleep(15)
     return Response(get_dag_data(), mimetype='text/event-stream')

@@ -6,7 +6,9 @@
 # 1. Install all client dependencies
 #	- docker
 #	- docker-compose
-# 2. Generate unique Executor_Id and customize variables for OpenBioC server
+# 2. Generate unique Executor_Id
+#	- user should select what execution environment prefer 
+# 3. Customize variables for OpenBioC server
 
 
 # Check if docker exist in your environment
@@ -23,7 +25,7 @@ LGREEN='\033[1;32m'
 echo "Welcome to the OpenBio Executor, ${USER}!"
 echo "Installation will take a few minutes. Please be patient..."
 
-echo "State 1/3 (Install docker) "
+echo "[${YELLOW}-${NC}] State 1/3 (Install docker) "
 
 # Save the distroID to optimize the installation of docker
 export DISTRO_ID=$(lsb_release -i -s)
@@ -56,7 +58,18 @@ fi
 
 echo "[${YELLOW}-${NC}] State 3/3 (Setting up variables and installing the OpenBio Executor) "
 
-
+# Select which of the Workflow management system will be used
+# wms = workflowmanagement system
+WMS_LIST=(cwl-airflow airflow)
+echo -e "[${LGREEN}-->${NC}] Select one of the Workflow Management Systems: "
+select WMS in ${WMS_LIST[@]}; do
+	if [ 1 -le "$REPLY" ] && [ "$REPLY" -le ${#WMS_LIST[@]} ]; then
+		echo echo "[${LGREEN}-${NC}] You have chosen $WMS"
+		break
+	else
+		echo "[${RED}-${NC}] Wrong selection: Select any number from 1 - ${#WMS_LIST[@]}"
+	fi
+done
 # Set user input for executor name, if the input is empty take default value ("main")
 read -e -p "[${LGREEN}-->${NC}] Enter your executor name: " EXECUTOR_INSTANCE
 if [ -z $EXECUTOR_INSTANCE ]; then 
@@ -69,7 +82,7 @@ fi
 # Set OBC_EXECUTOR PATH
 export OBC_EXECUTOR_PATH="/home/${USER}/obc_executor_${EXECUTOR_INSTANCE}"
 
-echo "[${YELLOW}-${NC}] Set installation path on your environment: ${OBC_EXECUTOR_PATH}" 
+echo "[${YELLOW}-${NC}] Set your installation path for your environment: ${OBC_EXECUTOR_PATH}" 
 mkdir -p ${OBC_EXECUTOR_PATH}
 export OBC_USER_ID=$(dbus-uuidgen)
 export NETDATA_ID=$(dbus-uuidgen)
@@ -87,9 +100,10 @@ echo -e "[${YELLOW}-${NC}] Client ID for OpenBioC Server : \033[38;2;0;255;0m${O
 export PUBLIC_IP=$(curl http://ip4.me 2>/dev/null | sed -e 's#<[^>]*>##g' | grep '^[0-9]')
 
 # File contains images
-wget -O ${OBC_EXECUTOR_PATH}/docker-compose.yml https://raw.githubusercontent.com/manoskout/obc_executions_production/master/docker-compose.yml
-# Config File
-wget -O ${OBC_EXECUTOR_PATH}/airflow.cfg https://raw.githubusercontent.com/manoskout/obc_executions_production/master/airflow.cfg
+wget -O ${OBC_EXECUTOR_PATH}/docker-compose.yml https://raw.githubusercontent.com/manoskout/OpenBioC_Execution/master/docker-compose-${WMS}.yml
+# Config File only for airflow
+if [[ "$WMS" == *"airflow"* ]]; then
+	wget -O ${OBC_EXECUTOR_PATH}/airflow.cfg https://raw.githubusercontent.com/manoskout/OpenBioC_Execution/master/airflow.cfg
 
 
 
@@ -97,7 +111,7 @@ wget -O ${OBC_EXECUTOR_PATH}/airflow.cfg https://raw.githubusercontent.com/manos
 # wget https://raw.githubusercontent.com/manoskout/docker-airflow/master/obc_executor_run.sh
 echo "[${YELLOW}-${NC}] Running Directory : $(pwd)"
 
-# Check if the pre-selected ports are in use 
+# Check if the pre-defined ports are in use 
 export OBC_AIRFLOW_PORT=8080
 export OBC_EXECUTOR_PORT=5000
 export EXECUTOR_DB_PORT=5432
@@ -126,6 +140,7 @@ OBC_AIRFLOW_PORT=$(portfinder $OBC_AIRFLOW_PORT)
 NETDATA_MONITORING_PORT=$(portfinder $NETDATA_MONITORING_PORT)
 EXECUTOR_DB_PORT=$(portfinder $EXECUTOR_DB_PORT)
 NETDATA_ID=${NETDATA_ID}
+WORKFLOW_FORMAT=${WORKFLOW_FORMAT}
 EOF
 
 #TODO -> change using docker-compose up -f asfsedfsdf.yml(FAILED)
@@ -153,7 +168,6 @@ if [ $? -eq 0 ] ; then
 	${NC}
 	"
 else
-	echo "Something goes wrong.. Close the service!"
+	echo "Something goes wrong.. Close the services!"
 	sudo docker-compose down
 fi
-

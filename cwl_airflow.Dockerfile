@@ -5,12 +5,16 @@
 # SOURCE: https://github.com/manoskout/docker-obc-airflow
 
 FROM python:3.7-slim-buster
-LABEL maintainer="Koutoulakis"
+MAINTAINER Manos Koutoulakis <koutoulakis_m@outlook.com>
 
 # Never prompt the user for choices on installation/configuration of packages
-ENV DEBIAN_FRONTEND noninteractive
+# ENV DEBIAN_FRONTEND noninteractive
 ENV TERM linux
 
+
+# Client
+ENV FLASK_APP client.py
+ENV FLASK_RUN_HOST 0.0.0.0
 # Airflow
 ARG AIRFLOW_VERSION=1.10.9
 ARG AIRFLOW_USER_HOME=/usr/local/airflow
@@ -18,6 +22,7 @@ ARG AIRFLOW_DEPS=""
 ARG PYTHON_DEPS=""
 ENV AIRFLOW_HOME=${AIRFLOW_USER_HOME}
 
+WORKDIR ${AIRFLOW_USER_HOME}
 # Define en_US.
 ENV LANGUAGE en_US.UTF-8
 ENV LANG en_US.UTF-8
@@ -43,17 +48,17 @@ RUN set -ex \
     && apt-get install -yqq --no-install-recommends \
         $buildDeps \
         freetds-bin \
-	file \
+	    file \
         build-essential \
         default-libmysqlclient-dev \
         apt-utils \
         curl \
-	wget \
-	unzip \
+	    wget \
+	    unzip \
         rsync \
         netcat \
         locales \
-	vim \
+	    vim \
     && sed -i 's/^# en_US.UTF-8 UTF-8$/en_US.UTF-8 UTF-8/g' /etc/locale.gen \
     && locale-gen \
     && update-locale LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 \
@@ -77,20 +82,25 @@ RUN set -ex \
         /usr/share/man \
         /usr/share/doc \
         /usr/share/doc-base
+#cwl-airflow installation        
+RUN apt-get update -yqq \
+    && apt-get upgrade -yqq \
+    && apt-get install -yqq --no-install-recommends \
+        nodejs \
+    && pip install cwl-airflow
 
-COPY script/entrypoint.sh /entrypoint.sh
-#COPY config/airflow.cfg ${AIRFLOW_USER_HOME}/airflow.cfg
+COPY client/airflow/script/entrypoint.sh /entrypoint.sh
 
 RUN chown -R airflow: ${AIRFLOW_USER_HOME}
 
 
 # This fixes permission issues on linux. 
 # The airflow user should have the same UID as the user running docker on the host system.
-ARG DOCKER_UID
-RUN \
-    : "${DOCKER_UID:?Build argument DOCKER_UID needs to be set and non-empty. Use 'make build' to set it automatically.}" \
-    && usermod -u ${DOCKER_UID} airflow \
-    && echo "Set airflow's uid to ${DOCKER_UID}"
+# ARG DOCKER_UID
+# RUN \
+    # : "${DOCKER_UID:?Build argument DOCKER_UID needs to be set and non-empty. Use 'make build' to set it automatically.}" \
+    # usermod -u ${DOCKER_UID} airflow \
+    # && echo "Set airflow's uid to ${DOCKER_UID}"
 
 #USER airflow
 #Set OBC_Client
@@ -100,15 +110,12 @@ RUN mkdir -m755 ${AIRFLOW_USER_HOME}/REPORTS/WORK
 RUN mkdir -m755 ${AIRFLOW_USER_HOME}/REPORTS/TOOL
 RUN mkdir -m755 ${AIRFLOW_USER_HOME}/REPORTS/DATA
 
-WORKDIR ${AIRFLOW_USER_HOME}
-ENV FLASK_APP client.py
-ENV FLASK_RUN_HOST 0.0.0.0
 
-COPY /client/requirements.txt requirements.txt
+COPY client/client/requirements.txt requirements.txt
 RUN pip install -r requirements.txt
-COPY /client/static/ ${AIRFLOW_USER_HOME}/static
-COPY /client/templates/ ${AIRFLOW_USER_HOME}/templates
-COPY /client/client.py ${AIRFLOW_USER_HOME}/
+COPY client/client/static/ ${AIRFLOW_USER_HOME}/static
+COPY client/client/templates/ ${AIRFLOW_USER_HOME}/templates
+COPY client/client/client.py ${AIRFLOW_USER_HOME}/
 
 # Temporary sollution
 RUN mkdir -m755 ${AIRFLOW_USER_HOME}/logs

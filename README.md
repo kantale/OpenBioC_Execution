@@ -4,12 +4,11 @@
 ### Getting Started 
 ---
 Instructions: 
-- Clone repository
 - Prerequisites :
     - Docker
     - Docker-Compose
 - Install prerequisites simply running the file `install.sh` :
-    -   `wget https://raw.githubusercontent.com/kantale/OpenBioC_Execution/master/obc_scripts/install.sh ; bash install.sh`
+    -   `wget https://raw.githubusercontent.com/kantale/OpenBioC_Execution/master/obc_scripts/install.sh ; bash install.sh`, or directly from [OpenBio Platform](https://www.openbio.eu/platform/)
 - You can run the OBC Executure simply running `cd /installation/directory/path` , then:
     - `docker-compose up` with logging
     - `docker-compose up -d` without logging

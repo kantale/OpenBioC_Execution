@@ -12,7 +12,7 @@ services:
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
-    container_name: "obc_source_monitoring"
+    container_name: "${EXECUTOR_INSTANCE}-OBC-Resource-Monitoring"
     
   postgres:
     image: postgres:9.6
@@ -22,10 +22,10 @@ services:
       - POSTGRES_DB=${POSTGRES_DB}
     ports:
       - "${EXECUTOR_DB_PORT}:5432"
-    container_name: "local_executor_db_${EXECUTOR_INSTANCE}"
+    container_name: "${EXECUTOR_INSTANCE}-OBC-DB"
 
   airflowserver:
-    image: manoskoutoulakis/docker-obc-airflow:1.10.9
+    image: manoskoutoulakis/obc-airflow:1.10.9
     restart: always
     depends_on:
       - postgres
@@ -49,7 +49,7 @@ services:
       - OBC_EXECUTOR_PORT=${OBC_EXECUTOR_PORT}
       - OBC_AIRFLOW_PORT=${OBC_AIRFLOW_PORT}
       - EXECUTOR_DB_PORT=${EXECUTOR_DB_PORT}
-      - FLASK_ENV=development
+      - WORKFLOW_FORMAT=${WMS}
     volumes:
       # Folder where airflow should store files
       - dagvolume:/usr/local/airflow/dags
@@ -69,7 +69,7 @@ services:
       interval: 15s
       timeout: 15s
       retries: 3
-    container_name: "executor_airflow_${EXECUTOR_INSTANCE}"
+    container_name: "${EXECUTOR_INSTANCE}-OBC-${WMS}"
 volumes:
   # Dag volumes 
   dagvolume:
