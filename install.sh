@@ -21,7 +21,7 @@ Install OpenBio Execution Environment
 -e --execution_environment : Specify the type of execution engine.
                              Available options: airflow, cwl-airflow 
 
--d  --execution_env_dir    : Directory of docker compose files and configurations. Default : /home/${USER}
+-d  --execution_env_dir    : Directory of docker compose files and configurations. Default : ${HOME}
 
 -W --workflow_port         : Workflow Management System Port. Default: 8080
 
@@ -95,7 +95,7 @@ echo "$WMS_PORT $API_PORT $DB_PORT $RESOURCE_PORT"
 #  Check if the specifies workflow engine is one of the selectionss
 [ "$WMS" == "cwl-airflow" ] || [ "$WMS" == "airflow" ] && echo "Selected Worfkflow Engine : $WMS" || wmsError $WMS
 
-[ -z "$ENVIRONMENT_PATH" ] && echo "Set the default directory /home/${USER}/" && export ENVIRONMENT_PATH="/home/${USER}"
+[ -z "$ENVIRONMENT_PATH" ] && echo "Set the default directory ${HOME}/" && export ENVIRONMENT_PATH="${HOME}"
 #  Set the default variables to 
 [ -z "$WMS_PORT" ] && echo "WMS Port is not setted. Set the default port 8080" && export WMS_PORT=8080
 [ -z "$API_PORT" ] && echo "API Port port is not setted. Set the default port 5000" && export API_PORT=5000
